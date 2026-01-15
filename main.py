@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 # from models import AR, VAR, GAR, RNN, VAR_mask
 # from models import CNNRNN, CNNRNN_Res, CNNRNN_Res_epi
-from models import CNNRNN_Res_epi
+from models import seir_pinn
 import numpy as np
 import sys
 import os
@@ -33,9 +33,9 @@ parser = argparse.ArgumentParser(description='Epidemiology Forecasting')
 parser.add_argument('--data', type=str, required=True,help='location of the data file')
 parser.add_argument('--train', type=float, default=0.6,help='how much data used for training')
 parser.add_argument('--valid', type=float, default=0.2,help='how much data used for validation')
-parser.add_argument('--model', type=str, default='CNNRNN_Res_epi',help='model to select')
+parser.add_argument('--model', type=str, default='seir_pinn',help='model to select')
 # --- CNNRNN option
-parser.add_argument('--sim_mat', type=str,help='file of similarity measurement (Required for CNNRNN_Res_epi)')
+parser.add_argument('--sim_mat', type=str,help='file of similarity measurement (Required for seir_pinn)')
 parser.add_argument('--hidRNN', type=int, default=50, help='number of RNN hidden units')
 parser.add_argument('--residual_window', type=int, default=4,help='The window size of the residual component')
 parser.add_argument('--ratio', type=float, default=1.,help='The ratio between CNNRNN and residual')
@@ -68,8 +68,8 @@ print(args);
 if not os.path.exists(args.save_dir):
     os.makedirs(args.save_dir)
 
-if args.model in ['CNNRNN_Res_epi'] and args.sim_mat is None:
-    print('CNNRNN_Res_epi requires "sim_mat" option')
+if args.model in ['seir_pinn'] and args.sim_mat is None:
+    print('seir-pinn requires "sim_mat" option')
     sys.exit(0)
 
 args.cuda = args.gpu is not None
@@ -127,9 +127,17 @@ try:
     for epoch in range(1, args.epochs+1):
         epoch_start_time = time.time()
         train_loss = train(Data, Data.train, model, criterion, optim, args.batch_size, args.model, args.epilambda)
-        val_loss, val_rae, val_corr = evaluate(Data, Data.valid, model, evaluateL2, evaluateL1, args.batch_size, args.model);
-        print('| end of epoch {:3d} | time: {:5.2f}s | train_loss {:5.8f} | valid rse {:5.4f} | valid rae {:5.4f} | valid corr  {:5.4f}'.format(epoch, (time.time() - epoch_start_time), train_loss, val_loss, val_rae, val_corr))
-        
+        val_loss, val_rae, val_corr, val_r2 = evaluate(
+            Data, Data.valid, model,
+            evaluateL2, evaluateL1,
+            args.batch_size, args.model
+        )
+
+        print('| end of epoch {:3d} | time: {:5.2f}s | train_loss {:5.8f} | '
+            'valid rse {:5.4f} | valid rae {:5.4f} | valid corr {:5.4f} | valid r2 {:5.4f}'
+            .format(epoch, (time.time() - epoch_start_time),
+                    train_loss, val_loss, val_rae, val_corr, val_r2))
+
         if math.isnan(train_loss)==True:
             sys.exit()
         
@@ -147,9 +155,9 @@ try:
 
             with open(model_path, 'wb') as f:
                 torch.save(model.state_dict(), f)
-            print('best validation');
-            test_acc, test_rae, test_corr  = evaluate(Data, Data.test, model, evaluateL2, evaluateL1, args.batch_size, args.model);
-            print ("test rse {:5.4f} | test rae {:5.4f} | test corr {:5.4f}".format(test_acc, test_rae, test_corr))
+            print('best validation'); 
+            test_acc, test_rae, test_corr, test_r2  = evaluate(Data, Data.test, model, evaluateL2, evaluateL1, args.batch_size, args.model);
+            print ("test rse {:5.4f} | test rae {:5.4f} | test corr {:5.4f} | test r2 {:5.4f}".format(test_acc, test_rae, test_corr, test_r2))
         
         #     y_test_loss.append(y_test_loss[-1])
         # else:
@@ -194,11 +202,11 @@ with open(model_path, 'rb') as f:
 
 print ("----------------------------")
 print ("Data.test")
-test_acc, test_rae, test_corr  = evaluate(Data, Data.test, model, evaluateL2, evaluateL1, args.batch_size, args.model);
-print ("test rse {:5.4f} | test rae {:5.4f} | test corr {:5.4f}".format(test_acc, test_rae, test_corr))
+test_acc, test_rae, test_corr,test_r2 = evaluate(Data, Data.test, model, evaluateL2, evaluateL1, args.batch_size, args.model);
+print ("test rse {:5.4f} | test rae {:5.4f} | test corr {:5.4f} | test r2 {:5.4f}".format(test_acc, test_rae, test_corr,test_r2))
 
 # # --------------------------------------------
-if args.model=="CNNRNN_Res_epi" and ifPlot == 1:
+if args.model=="seir_pinn" and ifPlot == 1:
     X_true, Y_predict, Y_true, BetaList, GammaList, NGMList = GetPrediction(Data, Data.test, model, evaluateL2, evaluateL1, args.batch_size, args.model)
     # print (X_true.shape)
     # print (Y_predict.shape)
@@ -216,5 +224,14 @@ if args.model=="CNNRNN_Res_epi" and ifPlot == 1:
     SaveName = "NGM"
     # PlotEachMatrix(NGMList, Type, SaveName, save_dir)
     PlotAllMatrices(NGMList, Type, SaveName, save_dir)
+    region_names = [f"R{i+1}" for i in range(NGMList.shape[1])]
+
+    plot_average_ngm_heatmap(
+        NGMList,
+        save_path=os.path.join(save_dir, "NGM_heatmap.pdf"),
+        region_names=region_names
+    )
+
+    
 
 
