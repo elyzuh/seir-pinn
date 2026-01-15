@@ -18,8 +18,13 @@ def evaluate(loader, data, model, evaluateL2, evaluateL1, batch_size, modelName)
     for inputs in loader.get_batches(data, batch_size, False):
         X, Y = inputs[0], inputs[1]
 
-        if modelName == "CNNRNN_Res_epi":
-            output, EpiOutput, _, _, _, _, _ = model(X);
+        if modelName == "seir_pinn":
+            b = X.size(0)
+            t = torch.linspace(0, 1, b).unsqueeze(1).to(X.device)
+
+            output, EpiOutput, _, _, _, _, _, phys_loss = model(X, t)
+
+
 
         else:
             output = model(X);
@@ -65,6 +70,19 @@ def evaluate(loader, data, model, evaluateL2, evaluateL1, batch_size, modelName)
     predict = predict.data.numpy();
     Ytest = test.data.numpy();
 
+    # =====================
+    # R² (Coefficient of Determination)
+    # =====================
+    # Compute R² per region, then average (consistent with CORR)
+    r2_list = []
+    for i in range(Ytest.shape[1]):  # over regions
+        if np.var(Ytest[:, i]) > 0:
+            r2_list.append(r2_score(Ytest[:, i], predict[:, i]))
+
+    # Mean R² across regions
+    r2 = np.mean(r2_list) if len(r2_list) > 0 else 0.0
+
+
     # tmp = 0
     # scale = loader.scale.data.numpy()[0]
     # for loc in range(0, predict.shape[1]):
@@ -85,7 +103,7 @@ def evaluate(loader, data, model, evaluateL2, evaluateL1, batch_size, modelName)
     correlation = ((predict - mean_p) * (Ytest - mean_g)).mean(axis = 0)/(sigma_p * sigma_g);
     correlation = (correlation[index]).mean();
     # root-mean-square error, absolute error, correlation
-    return rse, rae, correlation;
+    return rse, rae, correlation, r2;
 
 def train(loader, data, model, criterion, optim, batch_size, modelName, Lambda):
     model.train();
@@ -101,8 +119,11 @@ def train(loader, data, model, criterion, optim, batch_size, modelName, Lambda):
 
         model.zero_grad();
 
-        if modelName == "CNNRNN_Res_epi":
-            output, EpiOutput, _, _, _, _, phys_loss = model(X)
+        if modelName == "seir_pinn":
+            b = X.size(0)
+            t = torch.linspace(0, 1, b).unsqueeze(1).to(X.device)
+
+            output, EpiOutput, _, _, _, _, _, phys_loss = model(X, t)
 
         else:
             output = model(X);
@@ -112,13 +133,17 @@ def train(loader, data, model, criterion, optim, batch_size, modelName, Lambda):
         
         # --------------------------------------------
         # modified loss with epidemiological constrains
-        if modelName == "CNNRNN_Res_epi":
-            output, EpiOutput, _, _, _, _, phys_loss = model(X)
+        if modelName == "seir_pinn":
+            b = X.size(0)
+            t = torch.linspace(0, 1, b).unsqueeze(1).to(X.device)
+
+            output, EpiOutput, _, _, _, _, _, phys_loss = model(X, t)
 
             data_loss = criterion(output * scale, Y * scale)
             epi_loss  = criterion(EpiOutput * scale, Y * scale)
 
             loss = data_loss + Lambda * epi_loss + Lambda * phys_loss
+
 
         else:
             loss = criterion(output * scale, Y * scale);
@@ -169,7 +194,7 @@ def GetPrediction(loader, data, model, evaluateL2, evaluateL1, batch_size, model
 
     # print ("--------- Get prediction")
     counter = 0
-    if modelName == "CNNRNN_Res_epi":
+    if modelName == "seir_pinn":
         BetaList = None
         GammaList = None
         NGMList = None
@@ -177,8 +202,11 @@ def GetPrediction(loader, data, model, evaluateL2, evaluateL1, batch_size, model
     for inputs in loader.get_batches(data, batch_size, False):
         X, Y = inputs[0], inputs[1]
         
-        if modelName == "CNNRNN_Res_epi":
-            output, EpiOutput, Beta, Sigma, Gamma, NGMT, _ = model(X);
+        if modelName == "seir_pinn":
+            b = X.size(0)
+            t = torch.linspace(0, 1, b).unsqueeze(1).to(X.device)
+
+            output, EpiOutput, I_forecast, Beta, Sigma, Gamma, NGMT, _ = model(X, t)
 
         else:
             output = model(X);
@@ -198,7 +226,7 @@ def GetPrediction(loader, data, model, evaluateL2, evaluateL1, batch_size, model
             Y_true = torch.cat((Y_true, Y.cpu()))
             X_true = torch.cat((X_true, X.cpu()))
 
-            if modelName == "CNNRNN_Res_epi":
+            if modelName == "seir_pinn":
                 BetaList = torch.cat((BetaList, Beta.cpu()))
                 GammaList = torch.cat((GammaList, Gamma.cpu()))
                 NGMList = torch.cat((NGMList, NGMT.cpu()))
@@ -218,7 +246,7 @@ def GetPrediction(loader, data, model, evaluateL2, evaluateL1, batch_size, model
     Y_true = Y_true.detach().numpy()
     X_true = X_true.detach().numpy()
 
-    if modelName == "CNNRNN_Res_epi":
+    if modelName == "seir_pinn":
         BetaList = BetaList.detach().numpy()
         GammaList = GammaList.detach().numpy()
         NGMList = NGMList.detach().numpy()
@@ -226,7 +254,7 @@ def GetPrediction(loader, data, model, evaluateL2, evaluateL1, batch_size, model
     # print (BetaList.shape)
     # print (GammaList.shape)
     # print (NGMList.shape)
-    if modelName == "CNNRNN_Res_epi":
+    if modelName == "seir_pinn":
         return X_true, Y_predict, Y_true, BetaList, GammaList, NGMList
     else:
         return X_true, Y_predict, Y_true
