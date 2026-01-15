@@ -80,15 +80,16 @@ class Model(nn.Module):
         # SEIR latent state head
         # =====================
         self.SEIR_head = nn.Sequential(
-            nn.Linear(self.hidR, 16),
-            nn.ReLU(),
-            nn.Linear(16, 4)  # S, E, I, R
+            nn.Linear(self.hidR + 1, 64),
+            nn.Tanh(),
+            nn.Linear(64, self.m * 4)
         )
+
 
     # ==================================================
     # Forward
     # ==================================================
-    def forward(self, x):
+    def forward(self, x, t):
         # x: [batch, window, regions]
         b = x.shape[0]
         xOriginal = x.clone()
@@ -144,47 +145,120 @@ class Model(nn.Module):
             res = self.output(res)
 
         # =====================
-        # SEIR latent states
+        # Time variable (PINN)
         # =====================
-        SEIR = self.SEIR_head(r)  # [b, 4]
+        t = t.requires_grad_(True)   # t: [b, 1]
 
-        S = SEIR[:, 0]
-        E = SEIR[:, 1]
-        I = SEIR[:, 2]
-        R = SEIR[:, 3]
+        # =====================
+        # SEIR latent states (per region)
+        # =====================
+        rt = torch.cat([r, t], dim=1)               # [b, hidR + 1]
+        SEIR = self.SEIR_head(rt).view(b, self.m, 4)
 
-        # Normalize per sample
+        S = SEIR[:, :, 0]
+        E = SEIR[:, :, 1]
+        I = SEIR[:, :, 2]
+        R = SEIR[:, :, 3]
+
+        # Normalize per region
         N = S + E + I + R + 1e-6
         S, E, I, R = S/N, E/N, I/N, R/N
 
-        # Broadcast to regions
-        S = S.unsqueeze(1).expand(-1, self.m)
-        E = E.unsqueeze(1).expand(-1, self.m)
-        I = I.unsqueeze(1).expand(-1, self.m)
-        R = R.unsqueeze(1).expand(-1, self.m)
-
+        # =====================
+        # Global coupling via mobility
+        # =====================
+        I_eff = I.matmul(masked_adj)   # [b, m]
 
         # =====================
-        # Physics-Informed SEIR residual
+        # Time derivatives via autograd
         # =====================
-        dS = -Beta * S * I
-        dE = Beta * S * I - Sigma * E
-        dI = Sigma * E - Gamma * I
-        dR = Gamma * I
 
+        dS_dt = torch.autograd.grad(
+            S,
+            t,
+            grad_outputs=torch.ones_like(S),
+            create_graph=True
+        )[0]
+
+        dE_dt = torch.autograd.grad(
+            E,
+            t,
+            grad_outputs=torch.ones_like(E),
+            create_graph=True
+        )[0]
+
+        dI_dt = torch.autograd.grad(
+            I,
+            t,
+            grad_outputs=torch.ones_like(I),
+            create_graph=True
+        )[0]
+
+        dR_dt = torch.autograd.grad(
+            R,
+            t,
+            grad_outputs=torch.ones_like(R),
+            create_graph=True
+        )[0]
+
+        # =====================
+        # SEIR ODE definitions
+        # =====================
+        fS = -Beta * S * I_eff
+        fE =  Beta * S * I_eff - Sigma * E
+        fI =  Sigma * E - Gamma * I
+        fR =  Gamma * I
+
+        # =====================
+        # Physics-informed residual (PINN)
+        # =====================
         physics_residual = (
-            dS.pow(2).mean() +
-            dE.pow(2).mean() +
-            dI.pow(2).mean() +
-            dR.pow(2).mean()
+            (dS_dt - fS).pow(2).mean() +
+            (dE_dt - fE).pow(2).mean() +
+            (dI_dt - fI).pow(2).mean() +
+            (dR_dt - fR).pow(2).mean()
         )
 
+        # =====================
+        # SEIR forward integration (Euler)
+        # =====================
+        S_t, E_t, I_t, R_t = S, E, I, R
+        I_preds = []
+
+        for _ in range(self.h):
+            I_eff = I_t.matmul(masked_adj)
+
+            dS = -Beta * S_t * I_eff
+            dE =  Beta * S_t * I_eff - Sigma * E_t
+            dI =  Sigma * E_t - Gamma * I_t
+            dR =  Gamma * I_t
+
+            S_t = S_t + dS
+            E_t = E_t + dE
+            I_t = I_t + dI
+            R_t = R_t + dR
+
+            # =====================
+            # Issue 3 fix: population conservation
+            # =====================
+            N = S_t + E_t + I_t + R_t + 1e-6
+            S_t = S_t / N
+            E_t = E_t / N
+            I_t = I_t / N
+            R_t = R_t / N
+
+            I_preds.append(I_t)
+
+
+        I_forecast = torch.stack(I_preds, dim=1)  # [b, horizon, m]
+
         return (
-            res,               # Deep forecast
-            EpiOutput,         # NGM forecast
+            res,              # Deep forecast
+            EpiOutput,        # NGM forecast
+            I_forecast,       # SEIR-PINN forecast
             Beta,
             Sigma,
             Gamma,
             NGMatrix,
-            physics_residual   # PINN loss
+            physics_residual  # True PINN loss
         )
