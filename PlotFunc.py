@@ -56,7 +56,7 @@ def PlotTrends(InputRealLocationTimeData, RealLocationTimeData, PredictedLocatio
 
         ax.set_xlim([-1, InputTimeLength+NumberOfSamples+horizon-1])
         plt.legend()
-        ax.set_title("Location " + str(i+1))
+        ax.set_title("Region " + str(i+1))
         ax.set_xlabel("Week")
         ax.set_ylabel("Influenza activity level")
         FigureType="Input_Prediction_Groundtruth"
@@ -217,5 +217,31 @@ def PlotAllMatrices(Matrix, Type, SaveName, save_dir):
     
     plt.savefig(save_dir + SaveName + "-AllTime" +".pdf", transparent=True, bbox_inches='tight')
     plt.close()
+
+def plot_average_ngm_heatmap(NGMList, save_path, region_names=None):
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    K = np.mean(NGMList, axis=0)
+    K = K / (K.max() + 1e-6)
+
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(
+        K,
+        cmap="Reds",
+        square=True,
+        linewidths=0.5,
+        xticklabels=region_names,
+        yticklabels=region_names,
+        cbar_kws={"label": "Normalized transmission strength"}
+    )
+    plt.xlabel("Source region (j)")
+    plt.ylabel("Affected region (i)")
+    plt.title("Average Next-Generation Matrix (SEIR-PINN)")
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+
 
     

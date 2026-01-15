@@ -9,8 +9,8 @@ import torch.nn as nn
 from utils_ModelTrainEval import *
 from utils import *
 
-from models import AR, VAR, GAR, RNN, VAR_mask
-from models import CNNRNN, CNNRNN_Res, CNNRNN_Res_epi
+from models import AR, VAR, GAR, RNN, VAR_mask, seir_pinn
+from models import CNNRNN, CNNRNN_Res
 
 import argparse
 
@@ -153,7 +153,7 @@ PlotTrends(Ytest.detach().numpy(), predict.detach().numpy(),save_dir)
 ifprint=1
 # ifprint=0
 
-if args.model=="CNNRNN_Res_epi":
+if args.model=="seir_pinn":
     if ifprint==1:
         # Beta_vector = torch.zeros([model.m, 1],dtype=torch.float64)
         # Gamma_vector = torch.zeros([model.m, 1],dtype=torch.float64)
