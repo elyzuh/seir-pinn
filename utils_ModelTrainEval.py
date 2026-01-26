@@ -12,6 +12,7 @@ def evaluate(loader, data, model, evaluateL2, evaluateL1, batch_size, modelName)
     n_samples = 0;
     predict = None;
     test = None;
+    eps = 1e-8;
 
     # print ("--------- Evaluate")
     counter = 0
@@ -71,6 +72,19 @@ def evaluate(loader, data, model, evaluateL2, evaluateL1, batch_size, modelName)
     Ytest = test.data.numpy();
 
     # =====================
+    # Relative Error (%)
+    # =====================
+    # Compute per region, then average (consistent with R² and CORR)
+    rel_error_list = []
+    for i in range(Ytest.shape[1]):  # over regions
+        denom = np.abs(Ytest[:, i]) + eps
+        rel_err = np.mean(np.abs(predict[:, i] - Ytest[:, i]) / denom)
+        rel_error_list.append(rel_err)
+
+    # Mean Relative Error (%)
+    relative_error = np.mean(rel_error_list) * 100
+
+    # =====================
     # R² (Coefficient of Determination)
     # =====================
     # Compute R² per region, then average (consistent with CORR)
@@ -103,7 +117,7 @@ def evaluate(loader, data, model, evaluateL2, evaluateL1, batch_size, modelName)
     correlation = ((predict - mean_p) * (Ytest - mean_g)).mean(axis = 0)/(sigma_p * sigma_g);
     correlation = (correlation[index]).mean();
     # root-mean-square error, absolute error, correlation
-    return rse, rae, correlation, r2;
+    return rse, rae, relative_error, correlation, r2;
 
 def train(loader, data, model, criterion, optim, batch_size, modelName, Lambda):
     model.train();

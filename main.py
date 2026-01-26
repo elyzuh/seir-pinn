@@ -127,11 +127,11 @@ try:
     for epoch in range(1, args.epochs+1):
         epoch_start_time = time.time()
         train_loss = train(Data, Data.train, model, criterion, optim, args.batch_size, args.model, args.epilambda)
-        val_loss, val_rae, val_corr, val_r2 = evaluate(
-            Data, Data.valid, model,
-            evaluateL2, evaluateL1,
-            args.batch_size, args.model
-        )
+        val_loss, val_rae, val_rel_error, val_corr, val_r2 = evaluate(Data, Data.valid, model, evaluateL2, evaluateL1, args.batch_size, args.model);
+        print('| end of epoch {:3d} | time: {:5.2f}s | train_loss {:5.8f} | '
+            'valid rse {:5.4f} | valid rae {:5.4f} |  valid relative error: {:5.2f}% | valid corr {:5.4f} | valid r2 {:5.4f}'
+            .format(epoch, (time.time() - epoch_start_time),
+                    train_loss, val_loss, val_rae, val_rel_error, val_corr, val_r2))
 
         print('| end of epoch {:3d} | time: {:5.2f}s | train_loss {:5.8f} | '
             'valid rse {:5.4f} | valid rae {:5.4f} | valid corr {:5.4f} | valid r2 {:5.4f}'
@@ -156,8 +156,8 @@ try:
             with open(model_path, 'wb') as f:
                 torch.save(model.state_dict(), f)
             print('best validation'); 
-            test_acc, test_rae, test_corr, test_r2  = evaluate(Data, Data.test, model, evaluateL2, evaluateL1, args.batch_size, args.model);
-            print ("test rse {:5.4f} | test rae {:5.4f} | test corr {:5.4f} | test r2 {:5.4f}".format(test_acc, test_rae, test_corr, test_r2))
+            test_acc, test_rae, test_relative_error, test_corr, test_r2 = evaluate(Data, Data.test, model, evaluateL2, evaluateL1, args.batch_size, args.model);
+            print ("test rse {:5.4f} | test rae {:5.4f} | test relative error {:5.2f}% | test corr {:5.4f} | test r2 {:5.4f}".format(test_acc, test_rae, test_relative_error, test_corr, test_r2))
         
         #     y_test_loss.append(y_test_loss[-1])
         # else:
@@ -202,8 +202,8 @@ with open(model_path, 'rb') as f:
 
 print ("----------------------------")
 print ("Data.test")
-test_acc, test_rae, test_corr,test_r2 = evaluate(Data, Data.test, model, evaluateL2, evaluateL1, args.batch_size, args.model);
-print ("test rse {:5.4f} | test rae {:5.4f} | test corr {:5.4f} | test r2 {:5.4f}".format(test_acc, test_rae, test_corr,test_r2))
+test_acc, test_rae, test_relative_error,test_corr, test_r2 = evaluate(Data, Data.test, model, evaluateL2, evaluateL1, args.batch_size, args.model);
+print ("test rse {:5.4f} | test rae {:5.4f} | test relative error {:5.2f}% | test corr {:5.4f} | test r2 {:5.4f}".format(test_acc, test_rae, test_relative_error, test_corr, test_r2))
 
 # # --------------------------------------------
 if args.model=="seir_pinn" and ifPlot == 1:
